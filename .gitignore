@@ -1,0 +1,5 @@
+.env
+agent_config.yaml
+.venv/
+__pycache__/
+node_modules/
