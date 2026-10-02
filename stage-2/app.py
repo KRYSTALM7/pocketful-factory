@@ -20,6 +20,9 @@ from urllib.parse import parse_qs, urlsplit
 
 
 MAX_AMOUNT = 1_000_000_000
+MAX_BODY_BYTES = 2_000_000
+# An unchanged export must always import, so the import endpoint gets a far larger cap.
+MAX_IMPORT_BODY_BYTES = 512 * 1024 * 1024
 MAX_BALANCE = 2**53
 HANDLE_RE = re.compile(r"^[a-z0-9_]{1,20}$")
 EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+$")
@@ -1243,7 +1246,9 @@ class Handler(BaseHTTPRequestHandler):
     def _handle(self):
         try:
             length_raw = self.headers.get("Content-Length", "0")
-            if not length_raw.isdigit() or int(length_raw) > 2_000_000:
+            limit = (MAX_IMPORT_BODY_BYTES if urlsplit(self.path).path == "/_test/import"
+                     else MAX_BODY_BYTES)
+            if not length_raw.isdigit() or int(length_raw) > limit:
                 fail(400, "malformed_request", "Invalid request body length")
             raw_body = self.rfile.read(int(length_raw)) if int(length_raw) else b""
             parsed = urlsplit(self.path)
@@ -1295,10 +1300,16 @@ class Handler(BaseHTTPRequestHandler):
     do_DELETE = _handle
 
 
+class Server(ThreadingHTTPServer):
+    # The listen backlog must stay well above the 50 requests served in flight;
+    # the default of 5 resets connections during a burst.
+    request_queue_size = 128
+    daemon_threads = True
+
+
 def main():
     port = int(os.environ.get("PORT", "8080"))
-    server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
-    server.daemon_threads = True
+    server = Server(("0.0.0.0", port), Handler)
     print(f"Pocketful Stage 2 listening on 0.0.0.0:{port}", flush=True)
     server.serve_forever()
 
