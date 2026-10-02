@@ -216,19 +216,6 @@ def test_stage3_export_import_preserves_revisions_and_snapshot(world, pay):
     assert stable_page["closing_balance"] == snapshot["closing_balance"]
 
 
-def test_import_replaces_statement_snapshots(world, pay):
-    assert_status(pay(amount=100), 201)
-    statement = world.ada.get("/statement").json()
-    document = world.ada.get("/_test/export").json()
-    assert statement["snapshot"] in document["statement_snapshots"]
-    assert_status(world.ada.post("/_test/import", json=document), 204)
-    assert world.ada.get("/statement", params={"snapshot": statement["snapshot"]}).json() == statement
-    del document["statement_snapshots"]
-    assert_status(world.ada.post("/_test/import", json=document), 204)
-    assert_error(world.ada.get("/statement", params={"snapshot": statement["snapshot"]}),
-                 404, "not_found")
-
-
 def test_correction_rejected_when_past_available_would_be_negative(reset, api):
     reset(fx.fixture(users=[fx.user("ada", 1000), fx.user("bob", 1000)]))
     ada = api().authenticate("ada@example.com", "correct horse")

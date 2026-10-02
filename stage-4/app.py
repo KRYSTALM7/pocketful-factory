@@ -1,4 +1,4 @@
-"""Pocketful Stage 3 HTTP service. Standard-library only."""
+"""Pocketful Stage 4 HTTP service. Standard-library only."""
 from __future__ import annotations
 
 import copy
@@ -230,6 +230,31 @@ def validate_financial_links(payments, requests):
             raise ValueError("unpaid request has a payment")
 
 
+def validate_refund_links(payments):
+    """Refunds reverse a non-refund payment between the same wallets, within its amount."""
+    payment_by_id = {payment["id"]: payment for payment in payments}
+    refunded = {}
+    for payment in payments:
+        target_id = payment.get("refund_of")
+        if target_id is None:
+            continue
+        target = payment_by_id.get(target_id) if isinstance(target_id, str) else None
+        if (target is None or target.get("refund_of") is not None
+                or payment["from_user_id"] != target["to_user_id"]
+                or payment["to_user_id"] != target["from_user_id"]
+                or payment["amount"] < 1
+                or payment.get("request_id") is not None
+                or payment.get("settlement_id") is not None
+                or payment.get("authorization_id") is not None):
+            raise ValueError("invalid refund link")
+        refunded[target_id] = refunded.get(target_id, 0) + payment["amount"]
+    for target_id, amount in refunded.items():
+        revisions = payment_by_id[target_id].get("revisions") or []
+        current = revisions[-1]["amount"] if revisions else payment_by_id[target_id]["amount"]
+        if amount > current:
+            raise ValueError("refunds exceed payment")
+
+
 def amount_value(value, *, required=True) -> int:
     if value is None and not required:
         return 0
@@ -355,6 +380,7 @@ class Service:
                 "note": item["note"], "visibility": item["visibility"],
                 "request_id": item.get("request_id"), "settlement_id": item.get("settlement_id"),
                 "authorization_id": item.get("authorization_id"),
+                "refund_of": item.get("refund_of"),
                 "created_at": item["created_at"]}
 
     def _initial_revision(self, amount, created_at):
@@ -511,8 +537,7 @@ class Service:
             fail(404, "not_found", "Payment not found")
         if payment["from_user_id"] != uid:
             fail(403, "forbidden", "Only the original sender may correct this payment")
-        if payment.get("settlement_id") is not None or payment.get("authorization_id") is not None:
-            fail(422, "linked_payment_immutable", "Linked payments cannot be corrected")
+        self._check_correctable(payment, allow_settlement=False)
 
         status, replay, signature = self._key_and_replay(
             headers, uid, "POST",
@@ -520,50 +545,143 @@ class Service:
         if status is not None:
             return status, replay
 
+        plan = self._plan_correction(payment, body, datetime.now(timezone.utc))
+        response = self._commit_corrections([plan])["revisions"][0]
+        self._save_idempotency(signature, response)
+        return 201, response
+
+    def _find_payment(self, payment_id):
+        payment = next((p for p in self.state["payments"] if p["id"] == payment_id), None)
+        if payment is None:
+            fail(404, "not_found", "Payment not found")
+        return payment
+
+    def _refunded_amount(self, payment_id):
+        return sum(p["amount"] for p in self.state["payments"] if p.get("refund_of") == payment_id)
+
+    def _check_correctable(self, payment, *, allow_settlement):
+        if (payment.get("authorization_id") is not None or payment.get("refund_of") is not None
+                or (payment.get("settlement_id") is not None and not allow_settlement)):
+            fail(422, "linked_payment_immutable", "Linked payments cannot be corrected")
+
+    def _plan_correction(self, payment, body, request_started):
+        """Validate one correction against the payment's current revision."""
         expected_revision = body.get("expected_revision")
         amount = integer_in_range(body.get("amount"), 0, MAX_AMOUNT)
         effective_at = body.get("effective_at")
         reason = body.get("reason")
         effective = parse_timestamp(effective_at)
-        request_started = datetime.now(timezone.utc)
         if (isinstance(expected_revision, bool) or not isinstance(expected_revision, int)
                 or expected_revision < 1 or amount is None
                 or effective is None or effective > request_started
                 or not isinstance(reason, str) or not 1 <= len(reason) <= 200):
             fail(422, "validation_failed", "Invalid payment correction")
-
-        revisions = payment.get("revisions") or [
-            self._initial_revision(payment["amount"], payment["created_at"])]
+        revisions = self._payment_revisions(payment)
         if expected_revision != len(revisions):
             fail(409, "stale_revision", "Payment revision is stale")
-        previous = revisions[-1]
-        delta = amount - previous["amount"]
-        debit_uid = payment["from_user_id"] if delta > 0 else payment["to_user_id"]
-        debit = abs(delta)
-        if debit and self._available(debit_uid) < debit:
+        if amount < self._refunded_amount(payment["id"]):
+            fail(422, "refund_exceeds_payment", "Payment would be smaller than its refunds")
+        return {"payment": payment, "revisions": revisions, "amount": amount,
+                "effective_at": effective_at, "reason": reason}
+
+    def _commit_corrections(self, plans, batch_id=None):
+        """Check the combined effect of validated corrections, then apply them atomically.
+
+        Current available funds are checked before historical balances. Every new revision
+        shares one recorded_at, later than the latest recorded revision of every payment.
+        """
+        changes = {}
+        for plan in plans:
+            payment = plan["payment"]
+            delta = plan["amount"] - plan["revisions"][-1]["amount"]
+            changes[payment["from_user_id"]] = changes.get(payment["from_user_id"], 0) - delta
+            changes[payment["to_user_id"]] = changes.get(payment["to_user_id"], 0) + delta
+        balances = {uid: self.state["users"][uid]["balance"] + change
+                    for uid, change in changes.items()}
+        if any(change < 0 and balances[uid] - self._held(uid) < 0
+               for uid, change in changes.items()):
             fail(409, "insufficient_funds", "Insufficient available funds")
-        sender_balance = self.state["users"][payment["from_user_id"]]["balance"] - delta
-        receiver_balance = self.state["users"][payment["to_user_id"]]["balance"] + delta
-        if max(sender_balance, receiver_balance) > MAX_BALANCE:
+        if any(value > MAX_BALANCE for value in balances.values()):
             fail(422, "validation_failed", "Resulting balance exceeds the supported range")
 
         recorded_dt = datetime.now(timezone.utc)
-        last_recorded = parse_timestamp(revisions[-1]["recorded_at"])
-        if recorded_dt <= last_recorded:
-            recorded_dt = last_recorded + timedelta(microseconds=1)
-        revision = {"revision": len(revisions) + 1, "amount": amount,
-                    "effective_at": effective_at, "recorded_at": recorded_dt.isoformat(),
-                    "reason": reason}
-        candidate_revisions = revisions + [revision]
-        if not self._record_historical_state_is_solvent({payment_id: candidate_revisions}):
+        for plan in plans:
+            last_recorded = parse_timestamp(plan["revisions"][-1]["recorded_at"])
+            if recorded_dt <= last_recorded:
+                recorded_dt = last_recorded + timedelta(microseconds=1)
+        recorded_at = recorded_dt.isoformat()
+        overrides, created = {}, []
+        for plan in plans:
+            revision = {"revision": len(plan["revisions"]) + 1, "amount": plan["amount"],
+                        "effective_at": plan["effective_at"], "recorded_at": recorded_at,
+                        "reason": plan["reason"]}
+            if batch_id is not None:
+                revision["correction_batch_id"] = batch_id
+            overrides[plan["payment"]["id"]] = plan["revisions"] + [revision]
+            created.append(revision)
+        if not self._record_historical_state_is_solvent(overrides):
             fail(409, "historical_overdraft", "Correction would make a historical balance negative")
 
-        response = {"payment_id": payment_id, "revision": revision["revision"],
-                    "amount": amount, "effective_at": effective_at,
-                    "recorded_at": revision["recorded_at"], "reason": reason}
-        self.state["users"][payment["from_user_id"]]["balance"] = sender_balance
-        self.state["users"][payment["to_user_id"]]["balance"] = receiver_balance
-        payment["revisions"] = candidate_revisions
+        for uid, value in balances.items():
+            self.state["users"][uid]["balance"] = value
+        revisions = []
+        for plan, revision in zip(plans, created):
+            plan["payment"]["revisions"] = overrides[plan["payment"]["id"]]
+            revisions.append({"payment_id": plan["payment"]["id"], **revision})
+        return {"recorded_at": recorded_at, "revisions": revisions}
+
+    def _correct_batch(self, uid, body, signature):
+        if uid not in self.state["operators"]:
+            fail(403, "forbidden", "Settlement operator permission required")
+        items = body.get("corrections")
+        if (not isinstance(items, list) or not 1 <= len(items) <= 32
+                or any(not isinstance(item, dict) for item in items)):
+            fail(422, "validation_failed", "corrections must contain 1 to 32 objects")
+        payment_ids = [item.get("payment_id") for item in items]
+        if (any(not isinstance(pid, str) for pid in payment_ids)
+                or len(set(payment_ids)) != len(payment_ids)):
+            fail(422, "validation_failed", "corrections need distinct payment_id strings")
+
+        request_started = datetime.now(timezone.utc)
+        plans = []
+        for item in items:
+            payment = self._find_payment(item["payment_id"])
+            self._check_correctable(payment, allow_settlement=True)
+            plans.append(self._plan_correction(payment, item, request_started))
+
+        members = {}
+        for plan in plans:
+            settlement_id = plan["payment"].get("settlement_id")
+            if settlement_id is not None:
+                members.setdefault(settlement_id, []).append(plan)
+        included = set(payment_ids)
+        for settlement_id in members:
+            if any(p["id"] not in included for p in self.state["payments"]
+                   if p.get("settlement_id") == settlement_id):
+                fail(422, "incomplete_settlement", "Every settlement member must be corrected together")
+        for plans_in_settlement in members.values():
+            if len({parse_timestamp(plan["effective_at"]) for plan in plans_in_settlement}) != 1:
+                fail(422, "validation_failed", "Settlement members need one effective instant")
+
+        batch_id = new_id("cb")
+        committed = self._commit_corrections(plans, batch_id)
+        response = {"correction_batch_id": batch_id, "recorded_at": committed["recorded_at"],
+                    "revisions": committed["revisions"]}
+        self._save_idempotency(signature, response)
+        return 201, response
+
+    def _refund_payment(self, uid, payment_id, body, signature):
+        payment = self._find_payment(payment_id)
+        if payment["to_user_id"] != uid:
+            fail(403, "forbidden", "Only the original receiver may refund this payment")
+        if payment.get("refund_of") is not None:
+            fail(422, "invalid_refund_target", "A refund cannot be refunded")
+        amount = amount_value(body.get("amount"))
+        if self._refunded_amount(payment_id) + amount > self._payment_revisions(payment)[-1]["amount"]:
+            fail(422, "refund_exceeds_payment", "Refunds would exceed the payment amount")
+        refund = self._make_payment(uid, payment["from_user_id"], amount, payment["note"],
+                                    payment["visibility"], refund_of=payment_id)
+        response = self._payment_obj(refund)
         self._save_idempotency(signature, response)
         return 201, response
 
@@ -709,7 +827,7 @@ class Service:
 
     def _make_payment(self, from_id, to_id, amount, note, vis, request_id=None,
                       settlement_id=None, authorization_id=None, created=None,
-                      reserved_authorization=None):
+                      reserved_authorization=None, refund_of=None):
         sender, receiver = self.state["users"][from_id], self.state["users"][to_id]
         if reserved_authorization is None and self._available(from_id) < amount:
             fail(409, "insufficient_funds", "Insufficient funds")
@@ -723,7 +841,7 @@ class Service:
         item = {"id": new_id("p"), "from_user_id": from_id, "to_user_id": to_id,
                 "amount": amount, "note": note, "visibility": vis,
                 "request_id": request_id, "settlement_id": settlement_id,
-                "authorization_id": authorization_id,
+                "authorization_id": authorization_id, "refund_of": refund_of,
                 "created_at": created or now()}
         return self._append_payment(item)
 
@@ -954,6 +1072,7 @@ class Service:
             item = {"id": new_id("p"), "from_user_id": sender, "to_user_id": receiver,
                     "amount": amount, "note": note, "visibility": vis,
                     "request_id": None, "settlement_id": settlement_id,
+                    "authorization_id": None, "refund_of": None,
                     "created_at": committed_at}
             item["revisions"] = [self._initial_revision(amount, committed_at)]
             payments.append(item)
@@ -1066,6 +1185,10 @@ class Service:
                             or not isinstance(revision.get("reason"), str)
                             or len(revision["reason"]) > 200):
                         raise ValueError()
+                    batch_id = revision.get("correction_batch_id")
+                    if batch_id is not None and (index == 1 or not isinstance(batch_id, str)
+                                                 or not batch_id or len(batch_id) > 64):
+                        raise ValueError()
                     if index == 1:
                         if (revision["amount"] != p["amount"]
                                 or revision["effective_at"] != p["created_at"]
@@ -1078,11 +1201,13 @@ class Service:
                              > parse_timestamp(revision["recorded_at"])):
                         raise ValueError()
                     previous_recorded = parse_timestamp(revision["recorded_at"])
-                if ((p.get("settlement_id") is not None or p.get("authorization_id") is not None)
+                # Settlement members may carry batch revisions; captures and refunds never change.
+                if ((p.get("authorization_id") is not None or p.get("refund_of") is not None)
                         and len(revisions) != 1):
                     raise ValueError()
                 payment_ids.add(p["id"])
                 payment_by_id[p["id"]] = p
+            validate_refund_links(state["payments"])
             request_ids = set()
             for r in state["requests"]:
                 if (not isinstance(r, dict) or not isinstance(r.get("id"), str) or not r["id"]
@@ -1212,9 +1337,11 @@ class Service:
                 pay_match = re.fullmatch(r"/requests/([^/]+)/pay", path)
                 capture_match = re.fullmatch(r"/authorizations/([^/]+)/capture", path)
                 correction_match = re.fullmatch(r"/payments/([^/]+)/corrections", path)
+                refund_match = re.fullmatch(r"/payments/([^/]+)/refunds", path)
                 if (path not in ("/payments", "/requests", "/splits", "/settlements",
-                                 "/authorizations") and not pay_match and not capture_match
-                        and not correction_match):
+                                 "/authorizations", "/correction-batches")
+                        and not pay_match and not capture_match
+                        and not correction_match and not refund_match):
                     raise ValueError()
                 suffix = "\0" + method + "\0" + path
                 if not slot.endswith(suffix):
@@ -1254,6 +1381,23 @@ class Service:
                             or payment["revisions"][response["revision"] - 1]["amount"]
                                != response.get("amount")):
                         raise ValueError()
+                elif refund_match:
+                    payment = payments_by_id.get(response.get("payment_id"))
+                    if payment is None or payment.get("refund_of") != refund_match.group(1):
+                        raise ValueError()
+                elif path == "/correction-batches":
+                    batch_id = response.get("correction_batch_id")
+                    revisions = response.get("revisions")
+                    if (not isinstance(batch_id, str) or not batch_id
+                            or not isinstance(revisions, list) or not revisions):
+                        raise ValueError()
+                    for item in revisions:
+                        payment = payments_by_id.get(item.get("payment_id") if isinstance(item, dict) else None)
+                        number = item.get("revision") if payment is not None else None
+                        if (not isinstance(number, int) or isinstance(number, bool)
+                                or not 2 <= number <= len(payment["revisions"])
+                                or payment["revisions"][number - 1].get("correction_batch_id") != batch_id):
+                            raise ValueError()
                 elif path == "/splits":
                     if (not isinstance(response.get("split_id"), str) or not response["split_id"]
                             or not isinstance(response.get("requests"), list)
@@ -1408,7 +1552,8 @@ class Service:
             item = {"id": pid, "from_user_id": sender, "to_user_id": receiver,
                 "amount": amt, "note": note, "visibility": vis, "request_id": request_id,
                 "settlement_id": raw.get("settlement_id"),
-                "authorization_id": raw.get("authorization_id"), "created_at": created_at}
+                "authorization_id": raw.get("authorization_id"),
+                "refund_of": raw.get("refund_of"), "created_at": created_at}
             item["revisions"] = [self._initial_revision(amt, created_at)]
             temp["payments"].append(item)
         requests = fixture.get("requests", [])
@@ -1530,6 +1675,7 @@ class Service:
         temp["operators"] = list(dict.fromkeys(ops))
         try:
             validate_financial_links(temp["payments"], temp["requests"])
+            validate_refund_links(temp["payments"])
         except ValueError:
             fail(422, "validation_failed", "Invalid financial links in fixture")
         net = {uid: 0 for uid in temp["users"]}
@@ -1636,6 +1782,14 @@ class Service:
                 correction_match = re.fullmatch(r"/payments/([^/]+)/corrections", path)
                 if correction_match:
                     return self._correct_payment(uid, correction_match.group(1), body, headers)
+                refund_match = re.fullmatch(r"/payments/([^/]+)/refunds", path)
+                if refund_match or path == "/correction-batches":
+                    status, replay, signature = self._key_and_replay(headers, uid, method, path, body)
+                    if status is not None:
+                        return status, replay
+                    if refund_match:
+                        return self._refund_payment(uid, refund_match.group(1), body, signature)
+                    return self._correct_batch(uid, body, signature)
             if method == "GET":
                 revisions_match = re.fullmatch(r"/payments/([^/]+)/revisions", path)
                 if revisions_match:
@@ -1644,7 +1798,10 @@ class Service:
                     if payment is None or uid not in (
                             payment["from_user_id"], payment["to_user_id"]):
                         fail(404, "not_found", "Payment not found")
-                    return 200, {"revisions": copy.deepcopy(self._payment_revisions(payment))}
+                    revisions = copy.deepcopy(self._payment_revisions(payment))
+                    for revision in revisions:
+                        revision.setdefault("correction_batch_id", None)
+                    return 200, {"revisions": revisions}
             if method == "POST" and path in ("/payments", "/requests", "/splits", "/settlements",
                                                "/authorizations"):
                 status, replay, signature = self._key_and_replay(headers, uid, method, path, body)
@@ -1822,7 +1979,7 @@ def main():
     port = int(os.environ.get("PORT", "8080"))
     server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
     server.daemon_threads = True
-    print(f"Pocketful Stage 3 listening on 0.0.0.0:{port}", flush=True)
+    print(f"Pocketful Stage 4 listening on 0.0.0.0:{port}", flush=True)
     server.serve_forever()
 
 
