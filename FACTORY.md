@@ -106,17 +106,21 @@ results; the judges' suite is larger than the shipped checks.
 
 ### 1. Connection backlog under a 50-request burst
 
-- **Symptom:** in a volume/concurrency probe with 50 requests in flight against a stage
-  service running directly on Windows, some connections were refused
-  (`WinError 10061`) while the server stayed healthy.
+- **Symptom:** Jerry's adversarial audit of the committed Stage 4 image released 50
+  `POST /payments` at once behind a barrier. Inside the Linux container, 3 rounds gave
+  {201: 48, `ConnectionResetError`: 2}, {201: 46, reset: 4} and {201: 47, reset: 3}. From the
+  host through the port mapping, each round lost one request to `RemoteDisconnected`. Money
+  integrity held: the dropped requests committed nothing. On Windows, a stage service run
+  directly showed the related behaviour: connections refused (`WinError 10061`) under the same
+  kind of burst while the server stayed healthy.
 - **Cause:** Python's `ThreadingHTTPServer` defaults to a listen backlog of 5. The spec
   requires up to 50 concurrent requests.
+- **Control:** the identical `app.py` with `request_queue_size = 128`, run in the same
+  container, gave {201: 50} in all 3 rounds. That isolates the cause.
 - **Change:** every stage now uses a server subclass with `request_queue_size = 128`.
 - **Re-test:** `test_fifty_simultaneous_requests_all_complete` fires barrier-synchronized
   bursts of 50 and repeats them, because a short backlog only drops part of a burst some of
-  the time.
-- **Note:** the same probe against the Linux container did not show refusals. The defect
-  was environment-sensitive, which is why it is tested repeatedly rather than once.
+  the time. It passes in all four stages, and all 50 requests complete.
 
 ### 2. Export larger than the 2 MB request-body limit
 
@@ -160,10 +164,12 @@ event and message accounting rather than billable model tokens.
 
 ### Model / provider usage
 
-- Development used **two Codex Go accounts and one Claude Pro account**.
+- Development used **two Codex Go accounts and one Claude Pro account**. Codex served earlier
+  development activity; the room records a Stage 2 run interrupted by a Codex usage limit.
+  The later and final seat configuration runs on Claude Code: every mandate in `mandates/`
+  records `Harness: Claude Code` and `Model: claude-opus-5-5`.
 - Observed Claude usage during the development period reached approximately **38% of the
   displayed 5-hour window** and **5% of the displayed weekly allowance**.
-- Exact monetary spend was not captured, so no dollar figure is reported.
 
 ### Cost measurement
 
@@ -184,13 +190,14 @@ to measure factory activity, while provider dashboards were used for quota/usage
 7. **Run the generated services locally:** `cd stage-N && python app.py`, and
    `python -m pytest -q tests` (see `README.md`).
 8. **Validate Docker/offline behaviour:** `docker build`, then `docker run --network none`
-   and query `/health` from inside the container (see `README.md` §9).
+   and query `/health` from inside the container (see README → *Docker and offline validation*).
 
 ## Final Submission Artifacts
 
 - Public GitHub repository (this one)
 - `stage-1/`, `stage-2/`, `stage-3/`, `stage-4/`: each a buildable service with `Dockerfile` and `RUN.md`
-- `mandates/`: `tom.md`, `jerry.md`, `spike.md`
+- `mandates/`: `tom.md`, `jerry.md`, `spike.md`, and `unknown.md` (the first Spike session,
+  which the room download names "Unknown")
 - `FACTORY.md`: this document
 - `README.md`: setup and usage guide
 - `room.json`: the Band room log, downloaded unchanged from Band
