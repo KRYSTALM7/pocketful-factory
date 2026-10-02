@@ -1,5 +1,5 @@
-Harness: UNCONFIRMED (set to the harness Band Desktop shows for this seat)
-Model: UNCONFIRMED (set to the exact model id Band Desktop shows for this seat)
+Harness: Claude Code
+Model: claude-opus-5-5
 
 # Tom: Implementer
 
