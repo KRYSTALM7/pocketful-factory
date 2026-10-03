@@ -19,6 +19,9 @@ MAX_AMOUNT = 1_000_000_000
 MAX_BODY_BYTES = 2_000_000
 # An unchanged export must always import, so the import endpoint gets a far larger cap.
 MAX_IMPORT_BODY_BYTES = 512 * 1024 * 1024
+# The UI loads only its own script and stylesheet, so everything else stays blocked.
+CONTENT_SECURITY_POLICY = ("default-src 'self'; frame-ancestors 'none'; base-uri 'none'; "
+                           "form-action 'self'")
 MAX_BALANCE = 2**53
 HANDLE_RE = re.compile(r"^[a-z0-9_]{1,20}$")
 EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+$")
@@ -881,7 +884,9 @@ class Handler(BaseHTTPRequestHandler):
             if not length_raw.isdigit() or int(length_raw) > limit:
                 fail(400, "malformed_request", "Invalid request body length")
             raw_body = self.rfile.read(int(length_raw)) if int(length_raw) else b""
-            status, payload = SERVICE.dispatch(self.command, self.path, self.headers, raw_body)
+            # HEAD is answered exactly like GET; _send_bytes omits the body.
+            method = "GET" if self.command == "HEAD" else self.command
+            status, payload = SERVICE.dispatch(method, self.path, self.headers, raw_body)
         except ApiError as exc:
             status = exc.status
             payload = {"error": {"code": exc.code, "message": exc.message}}
@@ -892,20 +897,43 @@ class Handler(BaseHTTPRequestHandler):
             encoded = b""
         else:
             encoded = json.dumps(payload, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
+        self._send_bytes(status, encoded, "application/json; charset=utf-8")
+
+    def _send_bytes(self, status, encoded, content_type):
         self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(encoded)))
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
+        if content_type.startswith("text/html"):
+            self.send_header("Content-Security-Policy", CONTENT_SECURITY_POLICY)
         self.send_header("Connection", "close")
         self.end_headers()
-        if encoded:
+        if encoded and self.command != "HEAD":
             self.wfile.write(encoded)
         self.close_connection = True
 
-    do_GET = _handle
-    do_POST = _handle
-    do_PUT = _handle
-    do_PATCH = _handle
-    do_DELETE = _handle
+    do_GET = do_HEAD = do_POST = do_PUT = do_PATCH = do_DELETE = _handle
+
+    def __getattr__(self, name):
+        # Every other method (OPTIONS, TRACE, CONNECT, ...) gets the same JSON error handling
+        # instead of http.server's HTML 501 page.
+        if name.startswith("do_"):
+            return self._handle
+        raise AttributeError(name)
+
+    def send_error(self, code, message=None, explain=None):
+        """Unparseable request lines get the documented JSON error body, never HTML or a 5xx."""
+        # Some Python versions reject the request line before recording its version, which
+        # would suppress the status line and headers entirely.
+        if self.request_version == "HTTP/0.9":
+            self.request_version = self.protocol_version
+        status = code if 400 <= code < 500 else 400
+        error = "not_found" if status == 404 else "malformed_request"
+        body = json.dumps({"error": {"code": error,
+                                     "message": message or "Request could not be completed"}},
+                          ensure_ascii=True, separators=(",", ":")).encode("utf-8")
+        self._send_bytes(status, body, "application/json; charset=utf-8")
 
 
 class Server(ThreadingHTTPServer):
