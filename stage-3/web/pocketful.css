@@ -148,6 +148,8 @@ button:disabled { opacity: .58; cursor: wait; transform: none; }
   .main-nav { grid-column: 1 / -1; grid-row: 2; width: 100%; gap: 3px; overflow-x: auto; scrollbar-width: none; }
   .main-nav::-webkit-scrollbar { display: none; }
   .main-nav a { padding: 9px 11px; font-size: 13px; }
+  /* The scrollable nav clips anything drawn outside it, so keep the focus ring inside the link. */
+  .main-nav a:focus-visible { outline-offset: -3px; }
   .account-nav { grid-column: 2; grid-row: 1; min-width: 0; }
   .account-nav .account-name { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .page-shell { width: min(100% - 32px, 620px); margin: 25px auto 45px; }

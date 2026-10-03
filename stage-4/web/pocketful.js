@@ -658,7 +658,10 @@
     const info = node("div", "authorization-info");
     const expiry = testNode("time", `authorization-expires-${id}`, "", authorization.expires_at);
     expiry.dateTime = authorization.expires_at;
-    info.append(expiry);
+    // The time element's text must stay the exact RFC 3339 value, so the label sits beside it.
+    const expiryLine = node("span");
+    expiryLine.append("Expires ", expiry);
+    info.append(expiryLine);
     if (authorization.status === "captured") {
       info.append(testNode("span", `authorization-captured-${id}`, "", formatMoney(authorization.captured_amount, authorization.currency || state.currency)));
     } else if (authorization.status === "open" && Number(authorization.captured_amount || 0) > 0) {
