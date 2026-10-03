@@ -280,6 +280,11 @@ def page_value(query, name, default, minimum, maximum=None):
     return value
 
 
+# Each scrypt call takes ~16 MiB and a full CPU for tens of milliseconds. Capping concurrent
+# login/signup hashes keeps a burst of logins from starving every other request of CPU.
+AUTH_HASH_SLOTS = threading.BoundedSemaphore(2)
+
+
 def password_hash(password: str, salt: bytes | None = None) -> str:
     salt = salt or secrets.token_bytes(16)
     digest = hashlib.scrypt(password.encode("utf-8"), salt=salt, n=2**14, r=8, p=1, dklen=32)
@@ -739,6 +744,61 @@ class Service:
             fail(422, "validation_failed", "Invalid financial links in fixture")
         return temp
 
+    def _check_signup_available(self, email, handle):
+        if email in self.state["emails"]:
+            fail(409, "email_taken", "Email is already registered")
+        if handle in self.state["handles"]:
+            fail(409, "handle_taken", "Derived handle is already taken")
+
+    def _signup(self, body):
+        email = required_string(body, "email")
+        password = required_string(body, "password")
+        display = required_string(body, "display_name")
+        if not EMAIL_RE.fullmatch(email) or email.count("@") != 1:
+            fail(422, "validation_failed", "Invalid email address")
+        if len(password) < 8:
+            fail(422, "validation_failed", "Password must contain at least 8 characters")
+        local = email.split("@", 1)[0].lower()
+        handle = re.sub(r"[^a-z0-9_]", "_", local)[:20]
+        if not handle:
+            handle = "_"
+        with self.lock:
+            self._check_signup_available(email, handle)
+        with AUTH_HASH_SLOTS:
+            hashed = password_hash(password)
+        with self.lock:
+            # Another signup may have taken the email or handle while this one hashed.
+            self._check_signup_available(email, handle)
+            uid, token = new_id("u"), secrets.token_urlsafe(32)
+            self.state["users"][uid] = {"id": uid, "email": email, "password_hash": hashed,
+                                        "display_name": display, "handle": handle, "balance": 0}
+            self.state["emails"][email] = uid
+            self.state["handles"][handle] = uid
+            self.state["tokens"][token] = uid
+            return 201, {"user_id": uid, "display_name": display, "token": token}
+
+    def _login(self, body):
+        email = required_string(body, "email")
+        password = required_string(body, "password")
+        with self.lock:
+            state = self.state
+            uid = state["emails"].get(email)
+            user = state["users"].get(uid) if uid else None
+            encoded = user["password_hash"] if user else None
+        if encoded is None:
+            fail(401, "unauthenticated", "Email or password is incorrect")
+        with AUTH_HASH_SLOTS:
+            matches = password_matches(password, encoded)
+        if not matches:
+            fail(401, "unauthenticated", "Email or password is incorrect")
+        with self.lock:
+            # A reset or import may have replaced this user while the password was checked.
+            if self.state is not state or state["users"].get(uid) is not user:
+                fail(401, "unauthenticated", "Email or password is incorrect")
+            token = secrets.token_urlsafe(32)
+            self.state["tokens"][token] = uid
+            return 200, {"user_id": uid, "display_name": user["display_name"], "token": token}
+
     def dispatch(self, method, target, headers, raw_body):
         parsed = urlsplit(target)
         path = parsed.path
@@ -751,6 +811,10 @@ class Service:
         if not isinstance(body, dict):
             fail(400, "malformed_request", "Request body must be a JSON object")
         query = parse_qs(parsed.query, keep_blank_values=True)
+        if method == "POST" and path in ("/auth/signup", "/auth/login"):
+            # scrypt is deliberately slow, so it runs outside the service lock; the lock
+            # only guards the lookups and the final write.
+            return self._signup(body) if path.endswith("signup") else self._login(body)
         with self.lock:
             if method == "GET" and path == "/health":
                 return 200, {"status": "ok"}
@@ -764,39 +828,6 @@ class Service:
                 replacement = self._validate_import(body)
                 self.state = replacement
                 return 204, None
-            if method == "POST" and path in ("/auth/signup", "/auth/login"):
-                email = required_string(body, "email")
-                password = required_string(body, "password")
-                if path.endswith("signup"):
-                    display = required_string(body, "display_name")
-                    if not EMAIL_RE.fullmatch(email) or email.count("@") != 1:
-                        fail(422, "validation_failed", "Invalid email address")
-                    if len(password) < 8:
-                        fail(422, "validation_failed", "Password must contain at least 8 characters")
-                    if email in self.state["emails"]:
-                        fail(409, "email_taken", "Email is already registered")
-                    local = email.split("@", 1)[0].lower()
-                    handle = re.sub(r"[^a-z0-9_]", "_", local)[:20]
-                    if not handle:
-                        handle = "_"
-                    if handle in self.state["handles"]:
-                        fail(409, "handle_taken", "Derived handle is already taken")
-                    uid, token = new_id("u"), secrets.token_urlsafe(32)
-                    self.state["users"][uid] = {"id": uid, "email": email,
-                        "password_hash": password_hash(password), "display_name": display,
-                        "handle": handle, "balance": 0}
-                    self.state["emails"][email] = uid
-                    self.state["handles"][handle] = uid
-                    self.state["tokens"][token] = uid
-                    return 201, {"user_id": uid, "display_name": display, "token": token}
-                uid = self.state["emails"].get(email)
-                user = self.state["users"].get(uid) if uid else None
-                if user is None or not password_matches(password, user["password_hash"]):
-                    fail(401, "unauthenticated", "Email or password is incorrect")
-                token = secrets.token_urlsafe(32)
-                self.state["tokens"][token] = uid
-                return 200, {"user_id": uid, "display_name": user["display_name"], "token": token}
-
             token_header = headers.get("Authorization", "")
             if not token_header.startswith("Bearer ") or not token_header[7:]:
                 fail(401, "unauthenticated", "A bearer token is required")
