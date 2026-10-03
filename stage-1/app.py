@@ -9,6 +9,7 @@ import os
 import re
 import secrets
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -658,6 +659,7 @@ class Service:
         users = fixture.get("users", [])
         if not isinstance(users, list):
             fail(422, "validation_failed", "users must be an array")
+        pending_user_hashes = []
         for raw in users:
             if not isinstance(raw, dict):
                 fail(422, "validation_failed", "Invalid user fixture")
@@ -670,9 +672,17 @@ class Service:
                 not HANDLE_RE.fullmatch(handle) or balance is None or uid in temp["users"] or
                 email in temp["emails"] or handle in temp["handles"]):
                 fail(422, "validation_failed", "Invalid or duplicate user fixture")
-            user = {"id": uid, "email": email, "password_hash": password_hash(password),
+            user = {"id": uid, "email": email, "password_hash": "",
                     "display_name": display, "handle": handle, "balance": balance}
             temp["users"][uid], temp["emails"][email], temp["handles"][handle] = user, uid, uid
+            pending_user_hashes.append((uid, password))
+        if pending_user_hashes:
+            # Fixture reset is test-only and can contain dozens of users. Hash distinct
+            # credentials concurrently so large invariant fixtures fit the HTTP timeout.
+            with ThreadPoolExecutor(max_workers=min(4, len(pending_user_hashes))) as pool:
+                hashes = pool.map(password_hash, (password for _, password in pending_user_hashes))
+                for (uid, _), hashed in zip(pending_user_hashes, hashes):
+                    temp["users"][uid]["password_hash"] = hashed
         temp["seeded_total"] = sum(user["balance"] for user in temp["users"].values())
         payments = fixture.get("payments", [])
         if not isinstance(payments, list):
