@@ -51,8 +51,10 @@
         body: body === undefined ? undefined : JSON.stringify(body),
         cache: "no-store"
       });
-    } catch (error) {
-      throw new NetworkFailure(error && error.message ? error.message : "Connection interrupted");
+    } catch (_) {
+      // The browser's own text ("Failed to fetch") means nothing to people. Still a
+      // NetworkFailure, so a lost payment keeps its uncertain, retry-safe handling.
+      throw new NetworkFailure("Couldn’t reach Pocketful. Check your connection and try again.");
     }
     if (response.status === 204 && method !== "GET") {
       // Financial and authentication writes return receipts. A successful status
