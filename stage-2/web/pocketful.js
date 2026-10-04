@@ -9,6 +9,8 @@
   let requestReadSequence = 0;
   let authorizationReadSequence = 0;
   const requestPayOperations = new Map();
+  // Mirrors UI_ROUTES in app.py.
+  const uiRoutes = new Set(["/", "/requests", "/split", "/signup", "/login", "/authorizations"]);
 
   class NetworkFailure extends Error {}
 
@@ -215,6 +217,19 @@
     const wrap = node("div", "empty-state");
     wrap.append(node("span", "empty-icon", "✦"), node("strong", "", title), node("p", "", detail));
     return wrap;
+  }
+
+  function loadingState(testId, text) {
+    const indicator = testNode("div", testId, "loading-state", text);
+    indicator.setAttribute("role", "status");
+    indicator.hidden = true;
+    return indicator;
+  }
+
+  // While a list loads, only the indicator shows: no empty state and no stale rows.
+  function setListLoading(container, indicator, loading) {
+    container.setAttribute("aria-busy", String(loading));
+    indicator.hidden = !loading;
   }
 
   function panelHeading(title, detail) {
@@ -467,13 +482,15 @@
     panel.append(panelHeading("Your requests", "Pay, decline, or cancel while a request is still pending."));
     const feedback = node("div", "notice-list"); feedback.id = "request-notices"; panel.append(feedback);
     const empty = emptyState("All caught up", "Requests you send or receive will appear here."); empty.dataset.testid = "empty-requests";
-    const columns = node("div", "two-fields"); columns.classList.add("request-columns");
+    empty.hidden = true;
+    const loading = loadingState("requests-loading", "Loading requests…");
+    const columns = testNode("div", "request-lists", "two-fields"); columns.classList.add("request-columns");
     const incomingSection = node("section", ""); incomingSection.append(node("h3", "", "Incoming"));
     const incoming = testNode("div", "incoming-list", "request-list");
     const outgoingSection = node("section", ""); outgoingSection.append(node("h3", "", "Outgoing"));
     const outgoing = testNode("div", "outgoing-list", "request-list");
     incomingSection.append(incoming); outgoingSection.append(outgoing); columns.append(incomingSection, outgoingSection);
-    panel.append(empty, columns); main.append(panel);
+    panel.append(loading, empty, columns); main.append(panel);
     void refreshRequests();
   }
 
@@ -482,13 +499,21 @@
     const outgoing = $("[data-testid='outgoing-list']");
     if (!incoming || !outgoing || !state.token) return;
     const sequence = ++requestReadSequence;
+    const columns = $("[data-testid='request-lists']");
+    const loading = $("[data-testid='requests-loading']");
+    const empty = $("[data-testid='empty-requests']");
+    empty.hidden = true; incoming.hidden = true; outgoing.hidden = true;
+    setListLoading(columns, loading, true);
     let result;
     try { result = await api("/requests?limit=200"); }
     catch (error) {
-      if (sequence === requestReadSequence) showMessage($("#request-notices"), "request-error", error.message || "Could not load requests.");
+      if (sequence !== requestReadSequence) return;
+      setListLoading(columns, loading, false);
+      showMessage($("#request-notices"), "request-error", error.message || "Could not load requests.");
       return;
     }
     if (sequence !== requestReadSequence) return;
+    setListLoading(columns, loading, false);
     if (!result.response.ok) { showMessage($("#request-notices"), "request-error", messageOf(result, "Could not load requests.")); return; }
     incoming.replaceChildren(); outgoing.replaceChildren();
     const requests = result.data.requests || [];
@@ -524,7 +549,7 @@
       target.append(row);
     }
     const noRequests = requests.length === 0;
-    $("[data-testid='empty-requests']").hidden = !noRequests;
+    empty.hidden = !noRequests;
     if (noRequests) { incoming.hidden = true; outgoing.hidden = true; }
     else { incoming.hidden = false; outgoing.hidden = false; }
   }
@@ -620,8 +645,10 @@
     panel.append(panelHeading("Your holds", "Open holds reduce what’s available to spend. Captures move money."));
     const feedback = node("div", "notice-list"); feedback.id = "authorization-notices"; panel.append(feedback);
     const empty = emptyState("No holds yet", "Money you reserve or authorize for you to collect will show up here."); empty.dataset.testid = "empty-authorizations";
+    empty.hidden = true;
+    const loading = loadingState("authorizations-loading", "Loading holds…");
     const list = testNode("div", "authorization-list", "authorization-list");
-    panel.append(empty, list); main.append(panel);
+    panel.append(loading, empty, list); main.append(panel);
     void refreshAuthorizations();
   }
 
@@ -629,18 +656,26 @@
     const list = $("[data-testid='authorization-list']");
     if (!list || !state.token) return;
     const sequence = ++authorizationReadSequence;
+    const loading = $("[data-testid='authorizations-loading']");
+    const empty = $("[data-testid='empty-authorizations']");
+    empty.hidden = true; list.hidden = true;
+    setListLoading(list, loading, true);
     let result;
     try { result = await api("/authorizations?limit=200"); }
     catch (error) {
-      if (sequence === authorizationReadSequence) showMessage($("#authorization-notices"), "authorization-error", error.message || "Could not load authorizations.");
+      if (sequence !== authorizationReadSequence) return;
+      setListLoading(list, loading, false);
+      showMessage($("#authorization-notices"), "authorization-error", error.message || "Could not load authorizations.");
       return;
     }
     if (sequence !== authorizationReadSequence) return;
+    setListLoading(list, loading, false);
     if (!result.response.ok) { showMessage($("#authorization-notices"), "authorization-error", messageOf(result, "Could not load authorizations.")); return; }
     const authorizations = result.data.authorizations || [];
     list.replaceChildren();
     for (const authorization of authorizations) list.append(renderAuthorization(authorization));
-    $("[data-testid='empty-authorizations']").hidden = authorizations.length > 0;
+    list.hidden = false;
+    empty.hidden = authorizations.length > 0;
   }
 
   function renderAuthorization(authorization) {
@@ -714,6 +749,14 @@
     return row;
   }
 
+  // Only an exact match from the app's own routes is followed, so ?next= can't redirect off-site.
+  function nextRoute() {
+    const next = new URLSearchParams(location.search).get("next");
+    if (next === null) return "/";
+    const route = next.startsWith("/") ? next : `/${next}`;
+    return uiRoutes.has(route) ? route : "/";
+  }
+
   function buildAuthPage(mode) {
     const signup = mode === "signup";
     const panel = node("section", "panel auth-card");
@@ -738,7 +781,7 @@
         const result = await api(`/auth/${mode}`, { method: "POST", body });
         if (!result.response.ok) { showMessage(feedback, "auth-error", messageOf(result, signup ? "Could not create your account." : "Email or password is incorrect.")); return; }
         state.token = result.data.token; localStorage.setItem(tokenKey, state.token);
-        location.assign("/");
+        location.assign(nextRoute());
       } catch (error) {
         showMessage(feedback, "auth-error", "We couldn’t reach Pocketful. Check your connection and try again.");
       } finally { submit.disabled = false; }
