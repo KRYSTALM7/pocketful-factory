@@ -101,3 +101,16 @@ def test_deeply_nested_json_body_is_a_json_400(base_url):
                               + payload)
     assert head.startswith(b"HTTP/1.1 400")
     assert json.loads(body)["error"]["code"] == "malformed_request"
+
+
+def test_json_nested_past_the_depth_limit_is_a_json_400_on_a_keyed_write(base_url, world):
+    # Shallow enough for json.loads, deep enough to break the recursive idempotency fingerprint.
+    payload = b'{"to_handle":"bob","amount":1,"x":' + b"[" * 900 + b"]" * 900 + b"}"
+    head, body = raw_exchange(base_url, b"POST /payments HTTP/1.1\r\nHost: x\r\n"
+                              b"Authorization: Bearer " + world.ada.token.encode()
+                              + b"\r\nIdempotency-Key: depth-900\r\n"
+                              b"Content-Type: application/json\r\nContent-Length: "
+                              + str(len(payload)).encode() + b"\r\nConnection: close\r\n\r\n"
+                              + payload)
+    assert head.startswith(b"HTTP/1.1 400")
+    assert json.loads(body)["error"]["code"] == "malformed_request"

@@ -21,6 +21,8 @@ from urllib.parse import parse_qs, urlsplit
 
 MAX_AMOUNT = 1_000_000_000
 MAX_BODY_BYTES = 2_000_000
+# Deeper bodies would exhaust the recursion in canonical(); no valid request nests this far.
+MAX_JSON_DEPTH = 64
 # An unchanged export must always import, so the import endpoint gets a far larger cap.
 MAX_IMPORT_BODY_BYTES = 512 * 1024 * 1024
 # The UI loads only its own script and stylesheet, so everything else stays blocked.
@@ -157,6 +159,17 @@ def instant_key(value):
 
 def new_id(prefix: str) -> str:
     return prefix + "_" + secrets.token_hex(12)
+
+
+def json_too_deep(value, limit=MAX_JSON_DEPTH) -> bool:
+    stack = [(value, 1)]
+    while stack:
+        item, depth = stack.pop()
+        if isinstance(item, (list, dict)):
+            if depth > limit:
+                return True
+            stack.extend((child, depth + 1) for child in (item.values() if isinstance(item, dict) else item))
+    return False
 
 
 def canonical(value) -> str:
@@ -1779,6 +1792,8 @@ class Service:
                               parse_constant=lambda _: (_ for _ in ()).throw(ValueError())) if raw_body else {}
         except (UnicodeDecodeError, json.JSONDecodeError, InvalidOperation, ValueError, RecursionError):
             fail(400, "malformed_request", "Request body is not valid JSON")
+        if json_too_deep(body):
+            fail(400, "malformed_request", "Request body is nested too deeply")
         if not isinstance(body, dict):
             fail(400, "malformed_request", "Request body must be a JSON object")
         query = parse_qs(parsed.query, keep_blank_values=True)
