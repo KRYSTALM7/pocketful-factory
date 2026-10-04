@@ -179,6 +179,53 @@ event and message accounting rather than billable model tokens.
 Monetary spend was not recorded as a reliable project-level figure. BAND Analytics was used
 to measure factory activity, while provider dashboards were used for quota/usage observations.
 
+## Room Evidence Guide
+
+`room.json` is the full-session download of the Band room "Pocketful Factory", saved
+unchanged as the participant guide requires. Nothing in it is filtered, reordered or edited.
+It holds 4,400 messages from 2026-09-30 18:03 UTC to 2026-10-02 19:36 UTC, and Band exported it
+at 2026-10-02 19:39 UTC.
+
+**What the export contains**
+
+| Message type | Count | What it is |
+|---|---|---|
+| `text` | 472 | Messages in the room: tasks, handoffs, findings, verdicts |
+| `tool_call` / `tool_result` | 1,513 / 1,190 | The exact commands each seat ran, with their output (tests, Docker, probes) |
+| `task` | 938 | Runtime events, mostly tool-permission requests and their resolution |
+| `thought` | 278 | Seats' working notes |
+| `error` | 8 | Runtime errors, including a Codex usage limit |
+| `participant` | 1 | The current Spike seat joining |
+
+| Sender | Messages |
+|---|---|
+| Tom | 1,872 |
+| Unknown (first Spike session, see `mandates/unknown.md`) | 1,141 |
+| Jerry | 934 |
+| Spike | 425 |
+| Owner (human) | 28 |
+
+**How to find the evidence.** Filter `messageType == "text"` to read the conversation. Mentions
+appear in `content` as `@[[<senderId>]]`. Jerry mentions Tom in 26 text messages and Tom
+mentions Jerry in 20. Then search `content` for these terms:
+
+| To find | Search for |
+|---|---|
+| Human steering | `senderType == "User"` (28 messages) |
+| Review verdicts | `BLOCKING`, `NON-BLOCKING`, `VERIFIED`, `REJECT` in `text` messages. `APPROVE` also matches tool-permission events, so filter by type. |
+| Reproductions | `repro`, and the `tool_call` / `tool_result` pairs that follow a finding |
+| Connection-backlog defect | `ConnectionResetError`, `RemoteDisconnected`, `request_queue_size` |
+| Large-import defect | `4.3 MB`, `512 MiB`, `malformed_request` |
+| Docker / offline checks | `docker build`, `--network none` |
+| Harness and delivery gates | `harness run`, `147/147`, `fresh clone` |
+| Provider interruptions | `usage limit` |
+
+**What it does not contain.** The export ends at 2026-10-02 19:39 UTC. Everything committed
+after `55dd301`, from `c2367eb` onwards, happened after this export, outside this room, and is
+**not** in this file. That includes the HTTP and UI hardening commits, the malformed-request
+and deep-JSON fixes with Jerry's reject → fix → re-verify cycle, and the final
+6c44c8e measurements. The commit messages and authorship in `git log` record that work.
+
 ## Reproducibility
 
 1. **Clone** this repository.
