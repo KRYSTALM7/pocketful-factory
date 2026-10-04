@@ -93,11 +93,14 @@ results; the judges' suite is larger than the shipped checks.
 
 | Gate | Result |
 |---|---|
-| Stage 1 own test suite | 180 passed |
-| Stage 2 own test suite | 53 passed |
-| Stage 3 own test suite | 84 passed |
-| Stage 4 own test suite | 103 passed |
+| Stage 1 own test suite (at `6c44c8e`) | 206 passed |
+| Stage 2 own test suite (at `6c44c8e`) | 94 passed |
+| Stage 3 own test suite (at `6c44c8e`) | 125 passed |
+| Stage 4 own test suite (at `6c44c8e`) | 144 passed |
 | Event harness (`harness run --all`, host mode, fresh clone at Stage 4 commit) | Every folder claimed its own stage on the shipped checks. Stage 4 passed suites 1–4 (147/147, 35/35, 6/6, 5/5); each lower folder failed the next suite, as required; upgrade sources 1→2, 2→3 and 3→4 passed |
+| Event harness re-run at `6c44c8e` (`harness run --stage 4`, host mode) | Stage 4 passed suites 1–4 (147/147, 35/35, 6/6, 5/5) |
+| `harness check --track pocketful` at `6c44c8e` | Exit 0: gates 1, 2 and the mandate part of gate 4 pass (gate 3 is not covered by `check`; see the Windows note in `README.md`) |
+| Final hardening (`c2367eb` … `6c44c8e`) | HTTP method handling, security headers and CSP; malformed `Content-Length` and deep-JSON bodies answered with 400; login/signup hashing outside the service lock; concurrent fixture password hashing on reset; UI focus, network-error, list-state and safe `?next=` fixes. Each commit added regression tests |
 | Docker / offline | Stage 4 image built from a fresh clone; ran with `--network none --cpus 2 --memory 2g`; `/health`, UI and assets served; non-root user |
 | 50-request concurrency | 50 simultaneous requests all complete (`tests/test_transport_limits.py`, repeated bursts); parallel same-key retries return one 201 and identical 200s; concurrent corrections on one revision commit once |
 | Large export/import | An export above 2 MB imports unchanged (`tests/test_transport_limits.py`) |

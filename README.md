@@ -146,16 +146,20 @@ Two kinds of result are reported here. Keep them apart: neither is the final jud
 and the judges' suite is larger than anything shipped with the track.
 
 **Development validation:** each stage's own pytest suite, run over HTTP against the service.
+Measured at commit `6c44c8e`, the last implementation commit, with each suite run on its own.
 
 | Stage | Own test suite |
 |---|---|
-| Stage 1 | 180 passed |
-| Stage 2 | 53 passed |
-| Stage 3 | 84 passed |
-| Stage 4 | 103 passed |
+| Stage 1 | 206 passed |
+| Stage 2 | 94 passed |
+| Stage 3 | 125 passed |
+| Stage 4 | 144 passed |
 
 **Event harness, shipped track-level checks:** `python -m harness run --all`, host mode,
-fresh clone at the Stage 4 commit. The Stage 4 folder passed suites 1–4:
+fresh clone at the original Stage 4 commit. It was re-run at `6c44c8e` with
+`python -m harness run --track pocketful --stage 4` (host mode), with the same results.
+`python -m harness check --track pocketful` at `6c44c8e` exited 0: gates 1, 2 and the mandate
+part of gate 4 pass. The Stage 4 folder passed suites 1–4:
 
 | Suite | Result |
 |---|---|
@@ -175,6 +179,19 @@ expected, and the upgrade checks 1→2, 2→3 and 3→4 passed.
 - **Concurrency:** 50 simultaneous requests all complete; parallel retries with the same key
   return one 201 and identical 200s; concurrent corrections on one revision commit once.
 - **Large export/import:** an export over 2 MB imports unchanged.
+
+**Final hardening pass.** Each commit below added regression tests to the stage suites:
+
+| Commit | Change |
+|---|---|
+| `c2367eb` | HTTP hardening: every method gets a documented JSON answer, HEAD mirrors GET; security headers (`X-Content-Type-Options`, `Referrer-Policy`) and a strict CSP on the UI |
+| `791dc89` | UI hardening: nav focus ring stays visible on small screens; hold expiry is labelled |
+| `d0b25c2` | Fixture reset: Stage 1 hashes fixture passwords concurrently on reset |
+| `8c35644` | Concurrency/auth: login and signup password hashing runs outside the service lock |
+| `35153b1` | UI hardening: a readable message when the service can't be reached |
+| `cdf9124` | HTTP hardening: malformed `Content-Length` and very deeply nested JSON return `400 malformed_request` instead of 500 |
+| `947609e` | UI hardening: list error, loading and empty states never overlap; login follows `?next=` only for the app's own routes |
+| `6c44c8e` | Deep-JSON protection: request bodies nested deeper than 64 levels return `400 malformed_request` |
 
 ## 🏗️ Architecture
 
