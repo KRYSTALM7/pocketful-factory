@@ -1777,7 +1777,7 @@ class Service:
             body = json.loads(raw_body.decode("utf-8"), parse_int=parse_json_integer,
                               parse_float=parse_json_decimal,
                               parse_constant=lambda _: (_ for _ in ()).throw(ValueError())) if raw_body else {}
-        except (UnicodeDecodeError, json.JSONDecodeError, InvalidOperation, ValueError):
+        except (UnicodeDecodeError, json.JSONDecodeError, InvalidOperation, ValueError, RecursionError):
             fail(400, "malformed_request", "Request body is not valid JSON")
         if not isinstance(body, dict):
             fail(400, "malformed_request", "Request body must be a JSON object")
@@ -1962,7 +1962,9 @@ class Handler(BaseHTTPRequestHandler):
             length_raw = self.headers.get("Content-Length", "0")
             limit = (MAX_IMPORT_BODY_BYTES if urlsplit(self.path).path == "/_test/import"
                      else MAX_BODY_BYTES)
-            if not length_raw.isdigit() or int(length_raw) > limit:
+            # ASCII digits only, and no more of them than the limit has, so int() cannot fail.
+            if (not (length_raw.isascii() and length_raw.isdigit())
+                    or len(length_raw) > len(str(limit)) or int(length_raw) > limit):
                 fail(400, "malformed_request", "Invalid request body length")
             raw_body = self.rfile.read(int(length_raw)) if int(length_raw) else b""
             parsed = urlsplit(self.path)

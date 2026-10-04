@@ -64,3 +64,40 @@ def test_json_responses_carry_security_headers_but_no_cors(base_url):
         assert_security_headers(headers)
         assert not any(name.lower().startswith("access-control-") for name in headers)
 
+
+def raw_exchange(base_url, request):
+    parts = urlsplit(base_url)
+    with socket.create_connection((parts.hostname, parts.port), timeout=8) as sock:
+        sock.sendall(request)
+        response = b""
+        while chunk := sock.recv(65536):
+            response += chunk
+    head, _, body = response.partition(b"\r\n\r\n")
+    return head, body
+
+
+@pytest.mark.parametrize("length", [b"\xb2", b"9" * 5000, b"0" * 4400, b"abc"],
+                         ids=["latin1-superscript-two", "5000-digits", "4400-zeros", "letters"])
+def test_malformed_content_length_is_a_json_400(base_url, length):
+    head, body = raw_exchange(base_url, b"POST /auth/login HTTP/1.1\r\nHost: x\r\n"
+                              b"Content-Type: application/json\r\nContent-Length: " + length
+                              + b"\r\nConnection: close\r\n\r\n")
+    assert head.startswith(b"HTTP/1.1 400")
+    assert json.loads(body)["error"]["code"] == "malformed_request"
+
+
+@pytest.mark.parametrize("length_header", [b"Content-Length: 0\r\n", b""], ids=["zero", "missing"])
+def test_empty_or_missing_content_length_still_works(base_url, length_header):
+    head, _ = raw_exchange(base_url, b"GET /health HTTP/1.1\r\nHost: x\r\n" + length_header
+                           + b"Connection: close\r\n\r\n")
+    assert head.startswith(b"HTTP/1.1 200")
+
+
+def test_deeply_nested_json_body_is_a_json_400(base_url):
+    payload = b"[" * 200_000 + b"]" * 200_000
+    head, body = raw_exchange(base_url, b"POST /auth/login HTTP/1.1\r\nHost: x\r\n"
+                              b"Content-Type: application/json\r\nContent-Length: "
+                              + str(len(payload)).encode() + b"\r\nConnection: close\r\n\r\n"
+                              + payload)
+    assert head.startswith(b"HTTP/1.1 400")
+    assert json.loads(body)["error"]["code"] == "malformed_request"
