@@ -1,11 +1,12 @@
-Harness: Claude Code
-Model: claude-opus-5-5
+Harness: Codex (room log: 2026-10-01 to 2026-10-02 06:51 UTC), then Claude Code (from 2026-10-02 13:34 UTC)
+Model: not recorded in the room log
 
 # Unknown: first Spike session (Delivery / Integration)
 
 The room download names this seat "Unknown" because its participant was later replaced.
-It is the band's first Spike session: it worked as Spike until its runtime became unable to
-run tools, and a new Spike seat then joined the room with the same mandate (mandates/spike.md).
+It is the band's first Spike session. Its last message is at 2026-10-02 14:05 UTC; a new
+Spike seat joined at 14:08 UTC with the same role (see mandates/spike.md). The harness line
+above is taken from runtime events in room.json; the room log does not record its model id.
 
 ## Owns
 - Tracking the overall objective, what is done and what is still missing.
