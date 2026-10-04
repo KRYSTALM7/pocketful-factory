@@ -275,12 +275,13 @@
 
   function buildHome() {
     if (!state.me) {
-      main.replaceChildren(pageHeading("Your money, together", "A little more connected.", "Sign in to see your wallet, pay someone, or request what you’re owed."));
-      const cta = node("section", "panel auth-card");
-      const links = node("div", "form-actions");
-      const login = node("a", "primary-button", "Log in"); login.href = "/login";
-      const signup = node("a", "secondary-button", "Create account"); signup.href = "/signup";
-      links.append(login, signup); cta.append(links); main.append(cta); return;
+      // The signed-out landing page swaps the app navigation for sign-in links.
+      document.body.classList.add("is-landing");
+      const login = testNode("a", "header-login", "quiet-button", "Log in"); login.href = "/login";
+      const signup = testNode("a", "header-signup", "primary-button", "Create account"); signup.href = "/signup";
+      $("#account-nav").replaceChildren(login, signup);
+      main.replaceChildren($("#landing-template").content.cloneNode(true));
+      return;
     }
     main.replaceChildren(pageHeading("Your wallet", `Good to see you, ${state.me.display_name}.`, "A clear view of what’s yours to spend, plus the people and payments that make it move."));
     const grid = node("div", "layout-grid");

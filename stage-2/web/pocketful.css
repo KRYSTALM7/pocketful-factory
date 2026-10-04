@@ -71,13 +71,13 @@ h3 { font-size: 15px; margin-bottom: 5px; }
 .wallet-stat span:first-child { color: #deefff; font-size: 12px; }
 .wallet-stat strong { font-variant-numeric: tabular-nums; font-size: 16px; }
 .wallet-stat.available strong { font-size: 20px; }
-.wallet-refresh { align-self: flex-start; display: inline-flex; align-items: center; gap: 7px; border: 1px solid rgb(255 255 255 / 45%); border-radius: 999px; padding: 9px 13px; color: white; background: rgb(255 255 255 / 12%); cursor: pointer; font-size: 13px; font-weight: 650; }
+.wallet-refresh { align-self: flex-start; display: inline-flex; align-items: center; gap: 7px; border: 1px solid rgb(255 255 255 / 45%); border-radius: 999px; padding: 9px 13px; color: white; background: rgb(255 255 255 / 12%); cursor: pointer; font-size: 13px; font-weight: 650; white-space: nowrap; }
 .wallet-refresh:hover { background: rgb(255 255 255 / 22%); }
 
 .form-grid { display: grid; gap: 12px; }
 .field { display: grid; gap: 6px; min-width: 0; }
 .field label { color: #3f4d62; font-size: 13px; font-weight: 650; }
-.field input, .field select, .field textarea { min-width: 0; width: 100%; border: 1px solid #d7dfe9; border-radius: 12px; padding: 10px 12px; color: var(--ink); background: #fff; transition: border-color .15s, box-shadow .15s, background .15s; }
+.field input, .field select, .field textarea { min-width: 0; width: 100%; min-height: 44px; border: 1px solid #d7dfe9; border-radius: 12px; padding: 10px 12px; color: var(--ink); background: #fff; transition: border-color .15s, box-shadow .15s, background .15s; }
 .field input::placeholder, .field textarea::placeholder { color: #96a1b0; }
 .field input:hover, .field select:hover, .field textarea:hover { border-color: #aebdd0; }
 .field input:focus, .field select:focus, .field textarea:focus { border-color: var(--blue); outline: none; box-shadow: 0 0 0 3px rgb(23 105 210 / 13%); }
@@ -143,12 +143,42 @@ button:disabled { opacity: .58; cursor: wait; transform: none; }
 .loading-state { display: flex; align-items: center; gap: 11px; color: var(--muted); padding: 20px 0; font-size: 14px; }
 .loading-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--blue); box-shadow: 14px 0 0 #8bb9ec, 28px 0 0 #c5d9f1; margin-right: 28px; animation: pulse 1.1s infinite ease-in-out; }
 @keyframes pulse { 50% { opacity: .45; } }
+/* Signed-out landing page: sign-in links replace the app navigation. */
+.is-landing .main-nav { display: none; }
+.is-landing .topbar { justify-content: space-between; }
+.is-landing .account-nav { gap: 8px; }
+.account-nav .quiet-button, .account-nav .primary-button { padding: 10px 16px; border-radius: 12px; font-size: 14px; white-space: nowrap; }
+.account-nav .primary-button, .account-nav .primary-button:hover { color: white; }
+.account-nav .primary-button:hover { background: var(--blue-dark); }
+.landing-hero { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr); gap: 40px; align-items: center; padding: 26px 0 44px; }
+.landing-hero h1 { font-size: clamp(36px, 6vw, 58px); line-height: 1.03; letter-spacing: -.06em; margin-bottom: 16px; }
+.landing-hero .lede { font-size: 17px; max-width: 480px; margin-bottom: 26px; }
+.image-placeholder { border: 1px solid #d9e5f4; border-radius: 24px; background: linear-gradient(150deg, #eaf3ff 0%, #f8fbff 60%, #e3efff 100%); }
+.hero-visual { min-height: 340px; display: grid; align-content: center; gap: 18px; padding: 34px; }
+.placeholder-card { display: grid; gap: 12px; padding: 24px; border-radius: 18px; background: linear-gradient(118deg, #145fb9 0%, #287fdf 56%, #48a1ea 100%); box-shadow: 0 14px 30px rgb(23 105 210 / 18%); }
+.placeholder-rows { display: grid; gap: 12px; padding: 20px 24px; border: 1px solid var(--line); border-radius: 18px; background: var(--paper); }
+.placeholder-line { display: block; height: 10px; border-radius: 999px; background: #dbe6f3; }
+.placeholder-line.short { width: 45%; }
+.placeholder-card .placeholder-line { background: rgb(255 255 255 / 45%); }
+.placeholder-figure { display: block; width: 52%; height: 30px; border-radius: 8px; background: rgb(255 255 255 / 85%); }
+.landing-features { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; margin-bottom: 22px; }
+.landing-feature { padding: 18px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--paper); }
+.landing-feature h2 { margin: 16px 0 6px; }
+.landing-feature p { color: var(--muted); font-size: 14px; line-height: 1.5; margin: 0; }
+.feature-visual { height: 140px; display: grid; place-items: center; }
+.placeholder-mark { width: 52px; height: 52px; display: grid; place-items: center; border-radius: 16px; color: var(--blue); background: var(--paper); font-size: 24px; font-weight: 800; box-shadow: 0 6px 16px rgb(23 105 210 / 12%); }
+.landing-cta { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 18px; padding: 24px 28px; border-radius: var(--radius); color: white; background: linear-gradient(118deg, #145fb9 0%, #287fdf 56%, #48a1ea 100%); }
+.landing-cta h2 { margin: 0 0 4px; font-size: 22px; }
+.landing-cta p { margin: 0; color: #e4f2ff; font-size: 14px; }
+.landing-cta .primary-button { color: var(--blue-dark); background: var(--paper); box-shadow: none; }
+.landing-cta .primary-button:hover { background: var(--blue-pale); }
+.landing-cta :focus-visible { outline-color: white; }
 .site-footer { width: min(1120px, calc(100% - 48px)); margin: 0 auto; padding: 18px 0 28px; border-top: 1px solid var(--line); display: flex; justify-content: space-between; color: #78869a; font-size: 12px; }
 
 @media (max-width: 760px) {
   .topbar { min-height: auto; padding: 13px 18px 10px; display: grid; grid-template-columns: 1fr auto; gap: 9px 12px; }
   .brand { font-size: 18px; }
-  .brand-mark { width: 29px; height: 29px; }
+  .brand-mark { width: 29px; height: 29px; font-size: 21px; }
   .main-nav { grid-column: 1 / -1; grid-row: 2; width: 100%; gap: 3px; overflow-x: auto; scrollbar-width: none; }
   .main-nav::-webkit-scrollbar { display: none; }
   .main-nav a { padding: 9px 11px; font-size: 13px; }
@@ -161,6 +191,9 @@ button:disabled { opacity: .58; cursor: wait; transform: none; }
   .request-columns { grid-template-columns: 1fr; }
   .panel { padding: 20px; border-radius: 17px; }
   .wallet-hero { padding: 23px; }
+  .landing-hero { grid-template-columns: 1fr; gap: 26px; padding: 6px 0 30px; }
+  .hero-visual { min-height: 240px; padding: 24px; }
+  .landing-features { grid-template-columns: 1fr; gap: 14px; }
   .page-heading { align-items: flex-start; flex-direction: column; gap: 8px; margin-bottom: 19px; }
   .site-footer { width: calc(100% - 32px); }
 }
@@ -171,6 +204,7 @@ button:disabled { opacity: .58; cursor: wait; transform: none; }
   .main-nav a { font-size: 12px; padding-inline: 9px; }
   .account-nav .account-name { max-width: 88px; }
   .account-nav .logout-button { padding-inline: 7px; }
+  .account-nav .quiet-button, .account-nav .primary-button { padding-inline: 11px; font-size: 13px; }
   .page-shell { width: calc(100% - 26px); margin-top: 20px; }
   .panel { padding: 17px; }
   .wallet-hero { padding: 21px 19px; }
@@ -181,6 +215,11 @@ button:disabled { opacity: .58; cursor: wait; transform: none; }
   .activity-top, .row-top { gap: 8px; }
   .activity-amount, .row-amount { font-size: 13px; }
   .site-footer { width: calc(100% - 26px); font-size: 11px; }
+}
+
+@media (max-width: 360px) {
+  /* Too narrow for both header links; the hero's first button is Create account. */
+  .is-landing [data-testid='header-signup'] { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {

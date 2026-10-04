@@ -21,6 +21,60 @@
     <div class="account-nav" id="account-nav"></div>
   </header>
   <main id="main-content" class="page-shell" tabindex="-1"></main>
+  <!-- Signed-out landing page; pocketful.js clones it into <main> on "/". -->
+  <template id="landing-template">
+    <section class="landing-hero" data-testid="landing-hero">
+      <div class="landing-copy">
+        <p class="eyebrow">Your money, together</p>
+        <h1>Money moves better together.</h1>
+        <p class="lede">Send money, request what you’re owed, split shared costs and reserve money for later, all from one wallet.</p>
+        <div class="form-actions">
+          <a class="primary-button" href="/signup" data-testid="landing-signup">Create account</a>
+          <a class="secondary-button" href="/login" data-testid="landing-login">Log in</a>
+        </div>
+      </div>
+      <!-- IMAGE PLACEHOLDER: Add Pocketful product screenshot / hero visual here -->
+      <div class="image-placeholder hero-visual" aria-hidden="true">
+        <div class="placeholder-card">
+          <span class="placeholder-line short"></span>
+          <span class="placeholder-figure"></span>
+          <span class="placeholder-line"></span>
+        </div>
+        <div class="placeholder-rows">
+          <span class="placeholder-line"></span>
+          <span class="placeholder-line"></span>
+          <span class="placeholder-line short"></span>
+        </div>
+      </div>
+    </section>
+    <section class="landing-features" aria-label="What you can do with Pocketful">
+      <article class="landing-feature">
+        <!-- IMAGE PLACEHOLDER: Add Pocketful screenshot here -->
+        <div class="image-placeholder feature-visual" aria-hidden="true"><span class="placeholder-mark">→</span></div>
+        <h2>Send money</h2>
+        <p>Pay anyone by their handle, add a note, and choose whether friends can see it.</p>
+      </article>
+      <article class="landing-feature">
+        <!-- IMAGE PLACEHOLDER: Add Pocketful screenshot here -->
+        <div class="image-placeholder feature-visual" aria-hidden="true"><span class="placeholder-mark">÷</span></div>
+        <h2>Split the cost</h2>
+        <p>Divide a shared expense among friends and preview each exact share before the requests go out.</p>
+      </article>
+      <article class="landing-feature">
+        <!-- IMAGE PLACEHOLDER: Add Pocketful screenshot here -->
+        <div class="image-placeholder feature-visual" aria-hidden="true"><span class="placeholder-mark">↺</span></div>
+        <h2>Request &amp; reserve</h2>
+        <p>Ask someone for what you’re owed, or set money aside as a hold they can collect later.</p>
+      </article>
+    </section>
+    <section class="landing-cta">
+      <div>
+        <h2>Create your Pocketful</h2>
+        <p>It takes an email, a name and a password.</p>
+      </div>
+      <a class="primary-button" href="/signup">Create account</a>
+    </section>
+  </template>
   <footer class="site-footer"><span>Money moves better together.</span><span>Pocketful</span></footer>
 </body>
 </html>
