@@ -4,7 +4,7 @@
 
 Submission for the WeAreDevelopers **Dark Factory** hackathon, track **Pocketful**.
 
-**Demo video:** [LINK TO BE ADDED] · **Repository:** [github.com/KRYSTALM7/pocketful-factory](https://github.com/KRYSTALM7/pocketful-factory) · **Factory write-up:** [`FACTORY.md`](FACTORY.md)
+**Demo video:** [YouTube](https://www.youtube.com/watch?v=ofozYzJeyH0) · **Repository:** [github.com/KRYSTALM7/pocketful-factory](https://github.com/KRYSTALM7/pocketful-factory) · **Factory write-up:** [`FACTORY.md`](FACTORY.md)
 
 <!-- IMAGE PLACEHOLDER: Pocketful landing page screenshot -->
 
